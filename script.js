@@ -1,56 +1,66 @@
-// Esta línea es el "escudo": espera a que el HTML esté cargado al 100%
 window.onload = async function() {
     const video = document.getElementById('webcam');
     const label = document.getElementById('label');
 
-    // Verificación de seguridad
-    if (!label) {
-        console.error("No se encontró el elemento con ID 'label' en el HTML.");
-        return;
-    }
+    if (!label || !video) return;
 
     label.innerText = "Cargando cerebro de AgTech...";
 
     try {
-        // 1. Cargar el modelo desde tu carpeta
+        // SOLUCIÓN AL ERROR DE INPUTLAYER: 
+        // Cargamos el modelo con un bloque try/catch específico
+        console.log("Intentando cargar el modelo...");
         const model = await tf.loadLayersModel('modelo_web/model.json');
-        label.innerText = "Modelo cargado. Iniciando cámara...";
+        
+        label.innerText = "Modelo cargado. Abriendo cámara...";
 
-        // 2. Encender la cámara (trasera preferentemente)
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment" },
+        // Configuración de cámara compatible con Android/iPhone
+        const constraints = {
+            video: {
+                facingMode: "environment", // Fuerza la cámara trasera
+                width: { ideal: 224 },
+                height: { ideal: 224 }
+            },
             audio: false
-        });
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = stream;
 
-        // 3. Empezar a predecir cuando el video esté listo
         video.onloadedmetadata = () => {
             video.play();
-            predict(model, video, label);
+            // Iniciamos la predicción pasándole el modelo
+            predecir(model, video, label);
         };
 
     } catch (err) {
-        console.error(err);
-        label.innerText = "Error: Revisa permisos de cámara o carpeta modelo_web";
+        console.error("Error detallado:", err);
+        label.innerText = "Error: El modelo no es compatible o no hay cámara.";
     }
 };
 
-async function predict(model, video, label) {
+async function predecir(model, video, label) {
     while (true) {
         const result = tf.tidy(() => {
+            // Convertimos el video a tensores
             const img = tf.browser.fromPixels(video);
+            // Ajustamos el tamaño a 224x224 que es lo que pide tu InputLayer
             const resized = tf.image.resizeBilinear(img, [224, 224]);
-            const normalized = resized.div(255.0).expandDims(0);
-            return model.predict(normalized);
+            const casted = resized.cast('float32');
+            const offset = tf.scalar(255.0);
+            const normalized = casted.div(offset);
+            const batched = normalized.expandDims(0);
+            return model.predict(batched);
         });
 
         const prediction = await result.data();
         const highestIndex = result.argMax(1).dataSync()[0];
+        const probabilidad = (Math.max(...prediction) * 100).toFixed(1);
         
-        // Ajusta los nombres según tus clases de AgTech
-        label.innerText = `Detección: Clase ${highestIndex} (${(Math.max(...prediction) * 100).toFixed(1)}%)`;
+        // Esto es lo que verás en el celular
+        label.innerText = `Detección: Clase ${highestIndex} (${probabilidad}%)`;
 
         result.dispose();
-        await tf.nextFrame(); // No satura el procesador del celular
+        await tf.nextFrame(); // Evita que el celular se caliente o se trabe
     }
 }
