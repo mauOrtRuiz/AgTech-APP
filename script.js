@@ -1,84 +1,74 @@
-// AgTech - Script de Inferencia Optimizado
-window.onload = async function() {
-    const video = document.getElementById('webcam');
-    const label = document.getElementById('label');
+// AgTech-APP: Sistema de detección de cultivos
+let model;
+const video = document.getElementById('webcam');
+const label = document.getElementById('label');
 
-    if (!label || !video) return;
+async function setupWebcam() {
+    return new Promise((resolve, reject) => {
+        const navigatorAny = navigator;
+        navigator.getUserMedia = navigator.getUserMedia ||
+            navigatorAny.webkitGetUserMedia || navigatorAny.mozGetUserMedia || navigatorAny.msGetUserMedia;
+        if (navigator.getUserMedia) {
+            navigator.getUserMedia(
+                { video: { facingMode: "environment" } }, // Usa la cámara trasera del celular
+                stream => {
+                    video.srcObject = stream;
+                    video.addEventListener('loadeddata', () => resolve(), false);
+                },
+                error => reject());
+        } else {
+            reject();
+        }
+    });
+}
 
-    label.innerText = "Cargando cerebro de AgTech...";
+async function app() {
+    console.log('Cargando modelo AgTech...');
+    label.innerText = "Cargando IA... espera un momento.";
 
     try {
-        console.log("Intentando cargar el modelo...");
-        
-        // ESTRATEGIA 1: Carga estándar (LayersModel)
-        let model;
-        try {
-            model = await tf.loadLayersModel('modelo_web/model.json');
-        } catch (e) {
-            console.log("Fallo LayersModel, intentando con GraphModel...");
-            // ESTRATEGIA 2: Carga flexible (GraphModel) para evitar error de InputLayer
-            model = await tf.loadGraphModel('modelo_web/model.json');
-        }
-
-        label.innerText = "Modelo cargado. Abriendo cámara...";
-
-        // Configuración de cámara para celular (Cámara trasera)
-        const constraints = {
-            video: {
-                facingMode: "environment",
-                width: { ideal: 224 },
-                height: { ideal: 224 }
-            },
-            audio: false
-        };
-
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = stream;
-
-        video.onloadedmetadata = () => {
-            video.play();
-            predecir(model, video, label);
-        };
-
-    } catch (err) {
-        console.error("Error crítico:", err);
-        label.innerText = "Error: El modelo no es compatible o falta la cámara.";
-    }
-};
-
-async function predecir(model, video, label) {
-    while (true) {
-        const result = tf.tidy(() => {
-            // Captura el frame de la cámara
-            const img = tf.browser.fromPixels(video);
-            
-            // Redimensiona a 224x224 (esto soluciona el error de Input Shape)
-            const resized = tf.image.resizeBilinear(img, [224, 224]);
-            
-            // Normaliza los valores de los píxeles (0 a 1)
-            const casted = resized.cast('float32');
-            const offset = tf.scalar(255.0);
-            const normalized = casted.div(offset);
-            
-            // Añade la dimensión de "batch" [1, 224, 224, 3]
-            return normalized.expandDims(0);
+        // SOLUCIÓN AL ERROR DE INPUTLAYER:
+        // Cargamos el modelo como GraphModel si LayersModel falla
+        model = await tf.loadLayersModel('modelo_web/model.json').catch(async (err) => {
+            console.log("Cargando como GraphModel por error de arquitectura...");
+            return await tf.loadGraphModel('modelo_web/model.json');
         });
 
-        // Ejecuta la predicción
-        const prediction = await model.predict(result).data();
-        
-        // Obtiene el índice de la clase con mayor probabilidad
-        const highestIndex = prediction.indexOf(Math.max(...prediction));
-        const probabilidad = (prediction[highestIndex] * 100).toFixed(1);
-        
-        // Muestra el resultado en pantalla
-        // PUEDES CAMBIAR LOS NOMBRES DE LAS CLASES AQUÍ:
-        const nombresClases = ["Sana", "Enferma A", "Enferma B"]; 
-        const nombre = nombresClases[highestIndex] || `Clase ${highestIndex}`;
-        
-        label.innerText = `Diagnóstico: ${nombre} (${probabilidad}%)`;
+        label.innerText = "IA Lista. Abre la cámara...";
+        await setupWebcam();
+        video.play();
 
-        result.dispose(); // Libera memoria para que el celular no se trabe
-        await tf.nextFrame(); // Espera al siguiente frame
+        while (true) {
+            const result = tf.tidy(() => {
+                // Captura y pre-procesamiento de la imagen
+                const img = tf.browser.fromPixels(video);
+                
+                // Forzamos el tamaño 224x224 para evitar el error de InputLayer
+                const resized = tf.image.resizeBilinear(img, [224, 224]);
+                const casted = resized.cast('float32');
+                const offset = tf.scalar(255.0);
+                const normalized = casted.div(offset);
+                const batched = normalized.expandDims(0);
+                
+                return model.predict(batched);
+            });
+
+            const prediction = await result.data();
+            const highestIndex = result.argMax(1).dataSync()[0];
+            const confidence = (Math.max(...prediction) * 100).toFixed(2);
+
+            // Personaliza aquí los nombres de tus clases
+            const clases = ["Sana", "Plaga Detectada", "Deficiencia Nutricional"];
+            label.innerText = `Resultado: ${clases[highestIndex] || 'Clase ' + highestIndex} (${confidence}%)`;
+
+            result.dispose();
+            await tf.nextFrame();
+        }
+    } catch (error) {
+        console.error(error);
+        label.innerText = "Error crítico: Verifica la carpeta 'modelo_web' o los permisos de cámara.";
     }
 }
+
+// Iniciar la aplicación
+app();
