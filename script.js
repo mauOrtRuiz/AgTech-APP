@@ -1,50 +1,56 @@
-// Esperamos a que toda la página cargue antes de buscar los elementos
+// Esta línea es el "escudo": espera a que el HTML esté cargado al 100%
 window.onload = async function() {
     const video = document.getElementById('webcam');
     const label = document.getElementById('label');
 
-    // Verificamos si los elementos existen para evitar el error de "null"
-    if (!label || !video) {
-        console.error("No se encontraron los elementos 'webcam' o 'label' en el HTML");
+    // Verificación de seguridad
+    if (!label) {
+        console.error("No se encontró el elemento con ID 'label' en el HTML.");
         return;
     }
 
-    label.innerText = "Cargando IA de AgTech...";
+    label.innerText = "Cargando cerebro de AgTech...";
 
     try {
-        // Cargar el modelo
+        // 1. Cargar el modelo desde tu carpeta
         const model = await tf.loadLayersModel('modelo_web/model.json');
-        label.innerText = "Modelo cargado. Abriendo cámara...";
+        label.innerText = "Modelo cargado. Iniciando cámara...";
 
-        // Configurar cámara
+        // 2. Encender la cámara (trasera preferentemente)
         const stream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: "environment" },
             audio: false
         });
         video.srcObject = stream;
 
-        // Bucle de predicción
+        // 3. Empezar a predecir cuando el video esté listo
         video.onloadedmetadata = () => {
-            setInterval(async () => {
-                const result = tf.tidy(() => {
-                    const img = tf.browser.fromPixels(video);
-                    const resized = tf.image.resizeBilinear(img, [224, 224]);
-                    const normalized = resized.div(255.0).expandDims(0);
-                    return model.predict(normalized);
-                });
-
-                const prediction = await result.data();
-                const highestIndex = result.argMax(1).dataSync()[0];
-                
-                // Actualizamos el texto con el resultado
-                label.innerText = `Detección: Clase ${highestIndex} (${(Math.max(...prediction) * 100).toFixed(2)}%)`;
-                
-                result.dispose();
-            }, 500); // Procesa cada medio segundo para no saturar el celular
+            video.play();
+            predict(model, video, label);
         };
 
-    } catch (error) {
-        console.error(error);
-        label.innerText = "Error al iniciar: Revisa cámara o carpeta modelo_web";
+    } catch (err) {
+        console.error(err);
+        label.innerText = "Error: Revisa permisos de cámara o carpeta modelo_web";
     }
 };
+
+async function predict(model, video, label) {
+    while (true) {
+        const result = tf.tidy(() => {
+            const img = tf.browser.fromPixels(video);
+            const resized = tf.image.resizeBilinear(img, [224, 224]);
+            const normalized = resized.div(255.0).expandDims(0);
+            return model.predict(normalized);
+        });
+
+        const prediction = await result.data();
+        const highestIndex = result.argMax(1).dataSync()[0];
+        
+        // Ajusta los nombres según tus clases de AgTech
+        label.innerText = `Detección: Clase ${highestIndex} (${(Math.max(...prediction) * 100).toFixed(1)}%)`;
+
+        result.dispose();
+        await tf.nextFrame(); // No satura el procesador del celular
+    }
+}
