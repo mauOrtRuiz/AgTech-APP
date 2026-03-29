@@ -1,0 +1,15 @@
+{
+  "name": "AgTech: Diagnóstico Inteligente",
+  "short_name": "AgTech",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2E7D32",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/188/188333.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
