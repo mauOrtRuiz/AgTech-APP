@@ -1,3 +1,4 @@
+// AgTech - Script de Inferencia Optimizado
 window.onload = async function() {
     const video = document.getElementById('webcam');
     const label = document.getElementById('label');
@@ -7,17 +8,24 @@ window.onload = async function() {
     label.innerText = "Cargando cerebro de AgTech...";
 
     try {
-        // SOLUCIÓN AL ERROR DE INPUTLAYER: 
         console.log("Intentando cargar el modelo...");
-        // Intentamos cargar el modelo de forma asíncrona
-        const model = await tf.loadLayersModel('modelo_web/model.json');
         
+        // ESTRATEGIA 1: Carga estándar (LayersModel)
+        let model;
+        try {
+            model = await tf.loadLayersModel('modelo_web/model.json');
+        } catch (e) {
+            console.log("Fallo LayersModel, intentando con GraphModel...");
+            // ESTRATEGIA 2: Carga flexible (GraphModel) para evitar error de InputLayer
+            model = await tf.loadGraphModel('modelo_web/model.json');
+        }
+
         label.innerText = "Modelo cargado. Abriendo cámara...";
 
-        // Configuración de cámara compatible con Android/iPhone
+        // Configuración de cámara para celular (Cámara trasera)
         const constraints = {
             video: {
-                facingMode: "environment", // Fuerza la cámara trasera
+                facingMode: "environment",
                 width: { ideal: 224 },
                 height: { ideal: 224 }
             },
@@ -29,38 +37,48 @@ window.onload = async function() {
 
         video.onloadedmetadata = () => {
             video.play();
-            // Iniciamos el bucle de predicción
             predecir(model, video, label);
         };
 
     } catch (err) {
-        console.error("Error detallado:", err);
-        label.innerText = "Error: El modelo no es compatible o no hay cámara.";
+        console.error("Error crítico:", err);
+        label.innerText = "Error: El modelo no es compatible o falta la cámara.";
     }
 };
 
 async function predecir(model, video, label) {
     while (true) {
         const result = tf.tidy(() => {
-            // Convertimos el video a tensores
+            // Captura el frame de la cámara
             const img = tf.browser.fromPixels(video);
-            // Ajustamos el tamaño a 224x224 que es lo que pide tu InputLayer
+            
+            // Redimensiona a 224x224 (esto soluciona el error de Input Shape)
             const resized = tf.image.resizeBilinear(img, [224, 224]);
+            
+            // Normaliza los valores de los píxeles (0 a 1)
             const casted = resized.cast('float32');
             const offset = tf.scalar(255.0);
             const normalized = casted.div(offset);
-            const batched = normalized.expandDims(0);
-            return model.predict(batched);
+            
+            // Añade la dimensión de "batch" [1, 224, 224, 3]
+            return normalized.expandDims(0);
         });
 
-        const prediction = await result.data();
-        const highestIndex = result.argMax(1).dataSync()[0];
-        const probabilidad = (Math.max(...prediction) * 100).toFixed(1);
+        // Ejecuta la predicción
+        const prediction = await model.predict(result).data();
         
-        // Esto es lo que verás en el celular
-        label.innerText = `Detección: Clase ${highestIndex} (${probabilidad}%)`;
+        // Obtiene el índice de la clase con mayor probabilidad
+        const highestIndex = prediction.indexOf(Math.max(...prediction));
+        const probabilidad = (prediction[highestIndex] * 100).toFixed(1);
+        
+        // Muestra el resultado en pantalla
+        // PUEDES CAMBIAR LOS NOMBRES DE LAS CLASES AQUÍ:
+        const nombresClases = ["Sana", "Enferma A", "Enferma B"]; 
+        const nombre = nombresClases[highestIndex] || `Clase ${highestIndex}`;
+        
+        label.innerText = `Diagnóstico: ${nombre} (${probabilidad}%)`;
 
-        result.dispose();
-        await tf.nextFrame(); // Evita que el celular se caliente o se trabe
+        result.dispose(); // Libera memoria para que el celular no se trabe
+        await tf.nextFrame(); // Espera al siguiente frame
     }
 }
