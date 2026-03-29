@@ -1,58 +1,45 @@
-// AgTech AI - Versión Estabilizada para PC
 async function app() {
     const video = document.getElementById('webcam');
     const label = document.getElementById('label');
 
-    label.innerText = "Cargando IA... (Esto puede tardar 10 segundos)";
-
+    // 1. FORZAMOS LA CÁMARA PRIMERO (Para romper el ciclo de error)
     try {
-        // 1. CARGA DIRECTA: Cargamos el modelo ignorando los errores de metadatos
-        console.log("Cargando modelo...");
-        const model = await tf.loadLayersModel('modelo_web/model.json');
-        console.log("Modelo cargado exitosamente.");
-
-        label.innerText = "Modelo listo. Accediendo a la cámara...";
-
-        // 2. ENCENDER CÁMARA: Este bloque es el que activa el hardware de tu PC
         const stream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: false
         });
         video.srcObject = stream;
+        video.play();
+        label.innerText = "Cámara lista. Cargando IA...";
+    } catch (e) {
+        label.innerText = "Error: No se pudo acceder a la cámara.";
+        return;
+    }
 
-        // 3. PREDICCIÓN EN TIEMPO REAL
-        video.onloadedmetadata = () => {
-            video.play();
-            
-            // Ciclo de detección
-            setInterval(async () => {
-                const result = tf.tidy(() => {
-                    const img = tf.browser.fromPixels(video);
-                    const resized = tf.image.resizeBilinear(img, [224, 224]);
-                    const normalized = resized.div(255.0).expandDims(0);
-                    return model.predict(normalized);
-                });
+    // 2. INTENTAMOS CARGAR EL MODELO SIN BYPASS
+    try {
+        // Usamos solo LayersModel (el formato correcto de tu archivo)
+        const model = await tf.loadLayersModel('modelo_web/model.json');
+        label.innerText = "IA de AgTech Online.";
 
-                const prediction = await result.data();
-                const highestIndex = result.argMax(1).dataSync()[0];
-                const prob = (Math.max(...prediction) * 100).toFixed(1);
-
-                // Nombres de tus carpetas de Colab
-                const clases = ["Sana", "Enferma A", "Enferma B"];
-                label.innerText = `Detección: ${clases[highestIndex] || 'Clase ' + highestIndex} (${prob}%)`;
-
-                result.dispose();
-            }, 500); 
-        };
+        // 3. INFERENCIA
+        setInterval(async () => {
+            const result = tf.tidy(() => {
+                const img = tf.browser.fromPixels(video);
+                const resized = tf.image.resizeBilinear(img, [224, 224]);
+                const normalized = resized.div(255.0).expandDims(0);
+                return model.predict(normalized);
+            });
+            const prediction = await result.data();
+            const highestIndex = result.argMax(1).dataSync()[0];
+            label.innerText = `Detección: Clase ${highestIndex}`;
+            result.dispose();
+        }, 1000);
 
     } catch (error) {
-        console.error("Error detallado:", error);
-        label.innerText = "Error: El archivo 'model.json' está corrupto o falta la cámara.";
-        
-        // Si el error es de InputLayer, intentamos una carga de emergencia
-        if(error.message.includes("InputLayer")) {
-            label.innerText = "Error de arquitectura. Necesitas regenerar el JSON.";
-        }
+        console.error("Error al cargar modelo:", error);
+        // Si sale el error de InputLayer aquí, el JSON necesita edición manual.
+        label.innerText = "Error de arquitectura en model.json. (InputLayer)";
     }
 }
 
