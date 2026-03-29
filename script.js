@@ -8,8 +8,8 @@ window.onload = async function() {
 
     try {
         // SOLUCIÓN AL ERROR DE INPUTLAYER: 
-        // Cargamos el modelo con un bloque try/catch específico
         console.log("Intentando cargar el modelo...");
+        // Intentamos cargar el modelo de forma asíncrona
         const model = await tf.loadLayersModel('modelo_web/model.json');
         
         label.innerText = "Modelo cargado. Abriendo cámara...";
@@ -29,7 +29,7 @@ window.onload = async function() {
 
         video.onloadedmetadata = () => {
             video.play();
-            // Iniciamos la predicción pasándole el modelo
+            // Iniciamos el bucle de predicción
             predecir(model, video, label);
         };
 
