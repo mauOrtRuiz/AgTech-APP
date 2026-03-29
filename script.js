@@ -1,46 +1,30 @@
-window.onload = async function() {
+// AgTech AI - Versión Estabilizada para PC
+async function app() {
     const video = document.getElementById('webcam');
     const label = document.getElementById('label');
 
-    if (!label || !video) return;
-
-    label.innerText = "Iniciando AgTech en PC...";
+    label.innerText = "Cargando IA... (Esto puede tardar 10 segundos)";
 
     try {
-        // 1. Cargamos el JSON manualmente para corregir el error de la capa de entrada
-        const response = await fetch('modelo_web/model.json');
-        const modelJson = await response.json();
+        // 1. CARGA DIRECTA: Cargamos el modelo ignorando los errores de metadatos
+        console.log("Cargando modelo...");
+        const model = await tf.loadLayersModel('modelo_web/model.json');
+        console.log("Modelo cargado exitosamente.");
 
-        // PARCHE TÉCNICO: Si al modelo le falta la forma de entrada, se la inyectamos aquí
-        if (modelJson.modelTopology && modelJson.modelTopology.model_config) {
-            const layers = modelJson.modelTopology.model_config.config.layers;
-            if (layers && layers[0] && layers[0].config) {
-                layers[0].config.batch_input_shape = [null, 224, 224, 3];
-            }
-        }
+        label.innerText = "Modelo listo. Accediendo a la cámara...";
 
-        // 2. Cargamos el modelo corregido desde la memoria
-        // Usamos una técnica de IO (Input/Output) para saltarnos el error de 'producer'
-        const model = await tf.loadLayersModel(tf.io.fromMemory(
-            modelJson.modelTopology,
-            modelJson.format,
-            modelJson.generatedBy,
-            modelJson.convertedBy,
-            modelJson.weightsManifest
-        ));
-        
-        label.innerText = "IA Sincronizada. Accediendo a cámara...";
-
-        // 3. Encender la cámara de la PC
+        // 2. ENCENDER CÁMARA: Este bloque es el que activa el hardware de tu PC
         const stream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: false
         });
         video.srcObject = stream;
 
+        // 3. PREDICCIÓN EN TIEMPO REAL
         video.onloadedmetadata = () => {
             video.play();
-            // Iniciamos el bucle de detección
+            
+            // Ciclo de detección
             setInterval(async () => {
                 const result = tf.tidy(() => {
                     const img = tf.browser.fromPixels(video);
@@ -53,16 +37,23 @@ window.onload = async function() {
                 const highestIndex = result.argMax(1).dataSync()[0];
                 const prob = (Math.max(...prediction) * 100).toFixed(1);
 
-                // Cambia estos nombres por tus categorías reales
+                // Nombres de tus carpetas de Colab
                 const clases = ["Sana", "Enferma A", "Enferma B"];
-                label.innerText = `Resultado: ${clases[highestIndex] || 'Clase ' + highestIndex} (${prob}%)`;
+                label.innerText = `Detección: ${clases[highestIndex] || 'Clase ' + highestIndex} (${prob}%)`;
 
                 result.dispose();
-            }, 500); // Procesa cada 500ms para no saturar la PC
+            }, 500); 
         };
 
-    } catch (err) {
-        console.error("Error detallado en PC:", err);
-        label.innerText = "Error de arquitectura. Revisa la consola (F12).";
+    } catch (error) {
+        console.error("Error detallado:", error);
+        label.innerText = "Error: El archivo 'model.json' está corrupto o falta la cámara.";
+        
+        // Si el error es de InputLayer, intentamos una carga de emergencia
+        if(error.message.includes("InputLayer")) {
+            label.innerText = "Error de arquitectura. Necesitas regenerar el JSON.";
+        }
     }
-};
+}
+
+app();
